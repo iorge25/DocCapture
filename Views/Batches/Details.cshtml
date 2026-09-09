@@ -1,0 +1,71 @@
+﻿@model DocCapture.Models.Entities.Batch
+@using DocCapture.Models.Entities
+@{
+    ViewData["Title"] = Model.Name;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="mb-1">@Model.Name</h2>
+        <div class="text-muted">@Model.FormTemplate?.Name</div>
+    </div>
+    <div>
+        <a asp-controller="Documents" asp-action="Upload" asp-route-batchId="@Model.Id" class="btn btn-primary">Upload Documents</a>
+        <a asp-action="Index" class="btn btn-outline-secondary">All Batches</a>
+    </div>
+</div>
+
+@if (TempData["Message"] != null)
+{
+    <div class="alert alert-success">@TempData["Message"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-warning">@TempData["Error"]</div>
+}
+
+@if (!Model.Documents.Any())
+{
+    <div class="alert alert-info">No documents in this batch yet.</div>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr>
+                <th style="width:60px;">#</th>
+                <th>File</th>
+                <th>Status</th>
+                <th>Uploaded</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @{
+                var i = 1;
+            }
+            @foreach (var d in Model.Documents.OrderBy(x => x.Id))
+            {
+                var badge = d.Status switch
+                {
+                    DocumentStatus.Pending => "bg-secondary",
+                    DocumentStatus.Extracted => "bg-info text-dark",
+                    DocumentStatus.InReview => "bg-warning text-dark",
+                    DocumentStatus.Verified => "bg-success",
+                    DocumentStatus.Rejected => "bg-danger",
+                    _ => "bg-secondary"
+                };
+
+                <tr>
+                    <td>@(i++)</td>
+                    <td>@d.OriginalFileName</td>
+                    <td><span class="badge @badge">@d.Status</span></td>
+                    <td>@d.UploadedAtUtc.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                    <td class="text-end">
+                        <a asp-controller="Documents" asp-action="Encode" asp-route-id="@d.Id" class="btn btn-sm btn-primary">Encode</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}

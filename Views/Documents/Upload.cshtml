@@ -1,0 +1,80 @@
+﻿@model DocCapture.Models.Entities.Batch
+@{
+    ViewData["Title"] = "Upload Documents";
+}
+
+<h2>Upload to “@Model.Name”</h2>
+<p class="text-muted">JPG, PNG, TIFF or PDF. Up to 20 MB per file.</p>
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-warning">@TempData["Error"]</div>
+}
+
+<form asp-action="Upload" asp-route-batchId="@Model.Id" method="post" enctype="multipart/form-data" id="uploadForm">
+    @Html.AntiForgeryToken()
+
+    <div id="dropZone" class="border border-2 border-dashed rounded p-5 text-center mb-3"
+         style="cursor:pointer; background:#fafafa;">
+        <div class="fs-5 mb-2">Drop files here</div>
+        <div class="text-muted">or click to browse</div>
+        <input type="file" name="files" id="fileInput" multiple
+               accept=".jpg,.jpeg,.png,.tif,.tiff,.pdf" class="d-none" />
+    </div>
+
+    <ul id="fileList" class="list-group mb-3"></ul>
+
+    <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Upload</button>
+    <a asp-controller="Batches" asp-action="Details" asp-route-id="@Model.Id" class="btn btn-link">Back to batch</a>
+</form>
+
+@section Scripts {
+    <script>
+        (function () {
+            const zone = document.getElementById('dropZone');
+            const input = document.getElementById('fileInput');
+            const list = document.getElementById('fileList');
+            const submitBtn = document.getElementById('submitBtn');
+
+            zone.addEventListener('click', () => input.click());
+
+            ['dragenter', 'dragover'].forEach(evt =>
+                zone.addEventListener(evt, e => {
+                    e.preventDefault();
+                    zone.style.background = '#eef4ff';
+                }));
+
+            ['dragleave', 'drop'].forEach(evt =>
+                zone.addEventListener(evt, e => {
+                    e.preventDefault();
+                    zone.style.background = '#fafafa';
+                }));
+
+            zone.addEventListener('drop', e => {
+                input.files = e.dataTransfer.files;
+                render();
+            });
+
+            input.addEventListener('change', render);
+
+            function render() {
+                list.innerHTML = '';
+                const files = Array.from(input.files);
+                files.forEach(f => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item d-flex justify-content-between';
+                    li.innerHTML = `<span>${f.name}</span>
+                                    <span class="text-muted">${(f.size / 1024 / 1024).toFixed(2)} MB</span>`;
+                    list.appendChild(li);
+                });
+                submitBtn.disabled = files.length === 0;
+                submitBtn.textContent = files.length ? `Upload ${files.length} file(s)` : 'Upload';
+            }
+
+            document.getElementById('uploadForm').addEventListener('submit', () => {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Uploading…';
+            });
+        })();
+    </script>
+}

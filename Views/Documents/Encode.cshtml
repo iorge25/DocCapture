@@ -1,0 +1,274 @@
+﻿@model DocCapture.Models.ViewModels.EncodeViewModel
+@{
+    ViewData["Title"] = "Encode — " + Model.OriginalFileName;
+    var isPdf = Model.ImageUrl.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/encode.css" asp-append-version="true" />
+}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+        <h5 class="mb-0">@Model.OriginalFileName</h5>
+        <small class="text-muted">
+            @Model.BatchName — document @Model.PositionInBatch of @Model.BatchTotal
+        </small>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <small class="text-muted d-none d-lg-block">
+            <kbd>Tab</kbd> next &nbsp; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> verify &amp; next
+        </small>
+        <a asp-controller="Batches" asp-action="Details" asp-route-id="@Model.BatchId"
+           class="btn btn-sm btn-outline-secondary">Back to batch</a>
+    </div>
+</div>
+
+<div class="encode-wrap">
+    <div class="doc-pane" id="docPane">
+        <div class="doc-toolbar">
+            <button type="button" class="btn btn-sm btn-light" id="zoomOut" title="Zoom out">&minus;</button>
+            <button type="button" class="btn btn-sm btn-light" id="zoomReset" title="Fit">Fit</button>
+            <button type="button" class="btn btn-sm btn-light" id="zoomIn" title="Zoom in">+</button>
+            <button type="button" class="btn btn-sm btn-light" id="rotate" title="Rotate">&#8635;</button>
+        </div>
+
+        @if (isPdf)
+        {
+            <embed src="@Model.ImageUrl" type="application/pdf" style="width:100%;height:100%;" />
+        }
+        else
+        {
+            <img src="@Model.ImageUrl" id="docImage" alt="@Model.OriginalFileName" />
+        }
+    </div>
+
+    <div class="field-pane">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="badge bg-secondary" id="progressBadge">0 / @Model.Fields.Count</span>
+            <button type="button" class="btn btn-sm btn-success" id="verifyBtn">
+                Verify &amp; Next
+            </button>
+        </div>
+
+        @foreach (var f in Model.Fields)
+        {
+            <div class="field-row" data-field-id="@f.ExtractedFieldId">
+                <label for="fld_@f.ExtractedFieldId">
+                    <span>
+                        @f.DisplayLabel
+                        @if (f.IsRequired)
+                        {
+                            <span class="text-danger">*</span>
+                        }
+                    </span>
+                    <span class="conf-badge @f.ConfidenceClass">
+                        @(f.Confidence.HasValue ? $"{f.Confidence.Value * 100:0}%" : "manual")
+                    </span>
+                </label>
+
+                <input type="@f.InputType"
+                       class="form-control form-control-sm encode-input"
+                       id="fld_@f.ExtractedFieldId"
+                       value="@f.Value"
+                       data-field-id="@f.ExtractedFieldId"
+                       data-required="@f.IsRequired.ToString().ToLower()"
+                       data-regex="@f.ValidationRegex"
+                       data-label="@f.DisplayLabel"
+                @(f.DataType == DocCapture.Models.Entities.FieldDataType.Currency ? "step=0.01" : "") />
+
+                <div class="field-error"></div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="save-pill" id="savePill">Saved</div>
+
+@Html.AntiForgeryToken()
+
+@section Scripts {
+    <script>
+        (function () {
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            const saveUrl = '@Url.Action("SaveField", "Documents")';
+            const verifyUrl = '@Url.Action("MarkVerified", "Documents")';
+            const documentId = @Model.DocumentId;
+            const nextId = @(Model.NextDocumentId?.ToString() ?? "null");
+            const batchUrl = '@Url.Action("Details", "Batches", new { id = Model.BatchId })';
+
+            const inputs = Array.from(document.querySelectorAll('.encode-input'));
+            const pill = document.getElementById('savePill');
+            const progressBadge = document.getElementById('progressBadge');
+
+            let pillTimer;
+            function flash(text, isError) {
+                pill.textContent = text;
+                pill.style.background = isError ? '#842029' : '#212529';
+                pill.classList.add('show');
+                clearTimeout(pillTimer);
+                pillTimer = setTimeout(() => pill.classList.remove('show'), 1600);
+            }
+
+            function updateProgress() {
+                const filled = inputs.filter(i => i.value.trim() !== '').length;
+                progressBadge.textContent = `${filled} / ${inputs.length}`;
+                progressBadge.className = 'badge ' +
+                    (filled === inputs.length ? 'bg-success' : 'bg-secondary');
+            }
+
+            function validate(input) {
+                const row = input.closest('.field-row');
+                const errBox = row.querySelector('.field-error');
+                const val = input.value.trim();
+                const label = input.dataset.label;
+
+                row.classList.remove('is-invalid', 'is-saved');
+                errBox.textContent = '';
+
+                if (input.dataset.required === 'true' && val === '') {
+                    row.classList.add('is-invalid');
+                    errBox.textContent = `${label} is required.`;
+                    return false;
+                }
+
+                const pattern = input.dataset.regex;
+                if (val !== '' && pattern) {
+                    try {
+                        if (!new RegExp(pattern).test(val)) {
+                            row.classList.add('is-invalid');
+                            errBox.textContent = `${label} format is invalid.`;
+                            return false;
+                        }
+                    } catch (e) { /* server still validates */ }
+                }
+                return true;
+            }
+
+            async function saveField(input) {
+                if (!validate(input)) return false;
+
+                const row = input.closest('.field-row');
+                const errBox = row.querySelector('.field-error');
+
+                try {
+                    const res = await fetch(saveUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': token
+                        },
+                        body: JSON.stringify({
+                            extractedFieldId: parseInt(input.dataset.fieldId, 10),
+                            value: input.value
+                        })
+                    });
+
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok) {
+                        row.classList.add('is-invalid');
+                        errBox.textContent = data.message || 'Save failed.';
+                        return false;
+                    }
+
+                    if (data.saved) {
+                        row.classList.add('is-saved');
+                        input.dataset.lastSaved = input.value;
+                        flash('Saved');
+                    }
+                    updateProgress();
+                    return true;
+                } catch (err) {
+                    flash('Network error — not saved', true);
+                    return false;
+                }
+            }
+
+            inputs.forEach((input, idx) => {
+                input.dataset.lastSaved = input.value;
+
+                input.addEventListener('blur', () => {
+                    if (input.value !== input.dataset.lastSaved) saveField(input);
+                });
+
+                input.addEventListener('wheel', () => {
+                    if (input.type === 'number') input.blur();
+                }, { passive: true });
+
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' && !e.ctrlKey) {
+                        e.preventDefault();
+                        saveField(input).then(() => {
+                            const next = inputs[idx + 1];
+                            if (next) next.focus();
+                            else document.getElementById('verifyBtn').focus();
+                        });
+                    }
+                });
+            });
+
+            document.addEventListener('keydown', async e => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    await verifyDocument();
+                }
+                if (e.ctrlKey && e.key.toLowerCase() === 's') {
+                    e.preventDefault();
+                    const active = document.activeElement;
+                    if (active && active.classList.contains('encode-input')) await saveField(active);
+                }
+            });
+
+            async function verifyDocument() {
+                const active = document.activeElement;
+                if (active && active.classList.contains('encode-input')) {
+                    if (active.value !== active.dataset.lastSaved) await saveField(active);
+                }
+
+                let allValid = true;
+                inputs.forEach(i => { if (!validate(i)) allValid = false; });
+                if (!allValid) {
+                    flash('Fix the highlighted fields first', true);
+                    document.querySelector('.field-row.is-invalid .encode-input')?.focus();
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`${verifyUrl}?id=${documentId}`, {
+                        method: 'POST',
+                        headers: { 'RequestVerificationToken': token }
+                    });
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok) { flash(data.message || 'Could not verify', true); return; }
+
+                    window.location.href = nextId
+                        ? '@Url.Action("Encode", "Documents")/' + nextId
+                        : batchUrl;
+                } catch {
+                    flash('Network error', true);
+                }
+            }
+
+            document.getElementById('verifyBtn').addEventListener('click', verifyDocument);
+
+            // Zoom and rotate
+            const img = document.getElementById('docImage');
+            if (img) {
+                let scale = 1, rotation = 0;
+                const apply = () => img.style.transform = `scale(${scale}) rotate(${rotation}deg)`;
+
+                document.getElementById('zoomIn').onclick    = () => { scale = Math.min(scale + 0.2, 4); apply(); };
+                document.getElementById('zoomOut').onclick   = () => { scale = Math.max(scale - 0.2, 0.4); apply(); };
+                document.getElementById('zoomReset').onclick = () => { scale = 1; rotation = 0; apply(); };
+                document.getElementById('rotate').onclick    = () => { rotation = (rotation + 90) % 360; apply(); };
+            }
+
+            updateProgress();
+
+            // Focus the first empty field, else the first field
+            inputs[0]?.focus();
+        })();
+    </script>
+}

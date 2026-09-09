@@ -1,0 +1,36 @@
+﻿@model DocCapture.Models.Entities.Batch
+@{
+    ViewData["Title"] = "New Batch";
+}
+
+<h2>New Batch</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <form asp-action="Create" method="post">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+            <div class="mb-3">
+                <label asp-for="Name" class="form-label">Batch Name</label>
+                <input asp-for="Name" class="form-control" placeholder="e.g. Supplier invoices — Sept 2026" autofocus />
+                <span asp-validation-for="Name" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="FormTemplateId" class="form-label">Form Template</label>
+                <select asp-for="FormTemplateId" asp-items="ViewBag.Templates as SelectList" class="form-select">
+                    <option value="">-- select --</option>
+                </select>
+                <span asp-validation-for="FormTemplateId" class="text-danger"></span>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Create and Upload</button>
+            <a asp-action="Index" class="btn btn-link">Cancel</a>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
